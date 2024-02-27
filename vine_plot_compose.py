@@ -491,6 +491,12 @@ def plot_file_hist(log_info, axs, args):
         axs.set_xlabel('File Replication Count')
         axs.set_ylabel('Number of Files')
         axs2.set_ylabel('Distributed Disk Usage (GB)')
+    if args.r_xlim is not None:
+        axs.set_xlim(right=args.r_xlim)
+        axs2.set_xlim(right=args.r_xlim)
+    if args.l_xlim is not None:
+        axs.set_xlim(left=args.l_xlim)
+        axs2.set_xlim(left=args.l_xlim)
     if args.sublegend: 
         axs.legend(loc='upper left')
         axs2.legend(loc='upper right')
@@ -537,6 +543,8 @@ if __name__ == '__main__':
     parser.add_argument('--origin', nargs='?', default='first-task', choices=['first-task', 'manager-start'], type=str)
     parser.add_argument('--r-xlim', nargs='?', default=None, type=float)
     parser.add_argument('--l-xlim', nargs='?', default=None, type=float)
+    parser.add_argument('--t-ylim', nargs='?', default=None, type=float)
+    parser.add_argument('--b-ylim', nargs='?', default=None, type=float)
     parser.add_argument('--worker-ticks', nargs='?', default=5, type=int)
 
     # Figure Options

@@ -332,7 +332,6 @@ def plot_state(log_info, axs, args):
         state = event[1]
         task_id = event[2]
 
-        print(time, state, task_id)
         state_info[state]['count'] += 1
         state_info[state]['x'].append(time - origin)
         state_info[state]['y'].append(state_info[state]['count'])

@@ -60,8 +60,7 @@ def parse_info(log):
                 if filename not in file_info:
                     file_info[filename] = {"workers":{}}
                 if obj not in file_info[filename]["workers"]:
-                    if size != 0:
-                        file_info[filename]['workers'][obj] = [time, size/GIGABYTES]
+                    file_info[filename]['workers'][obj] = [time, size/GIGABYTES]
                 if filename.startswith('temp'):
                     worker_info[obj]['cache'].append([time, size/GIGABYTES])
 

@@ -1,20 +1,82 @@
 import sys
 import matplotlib.pyplot as plt
 import ast
-import matplotlib.patches as patch
 import os
 import argparse
 
 MICROSECONDS = 1000000
 GIGABYTES = 1000000000
 
-def parse_info(log):
+def parse_debug(log):
+    lines = open(log, 'r').read().splitlines()
+    manager_transfers = 0
+    transfer_info = []
+    file_sizes = {}
+    transfer_addresses = {}
+    # FORMAT [FROM_ADDR, TO_ADDR, CACHENAME, SIZE(ADDED LATER)]
+    for line in lines:
+        if 'tx to' in line and ' file ' in line:
+            date, time, manager, vine, tx, to, machine, addr, opt, cachename, size, mode = line.split(maxsplit=11)
+            size = float(size)
+            addr = addr.strip('):')
+            addr = addr.strip('(')
+            transfer_info.append(['manager', addr, cachename])
+            if cachename not in file_sizes:
+                file_sizes[cachename] = []
+            file_sizes[cachename].append(size/GIGABYTES)
+        if 'rx from' in line and ' file ' in line:
+            try:
+                date, time, manager, vine, rx, frm, machine, addr, opt, cachename, size, mode = line.split(maxsplit=11)
+            # WQ fallback
+            except:
+                date, time, manager, vine, rx, frm, machine, addr, opt, cachename, size = line.split(maxsplit=10)
+            size = float(size)
+            addr = addr.strip('):')
+            addr = addr.strip('(')
+            transfer_info.append([addr, 'manager', cachename])
+            if cachename not in file_sizes:
+                file_sizes[cachename] = []
+            file_sizes[cachename].append(size/GIGABYTES)
+        if 'will get' in line:
+            date, time, manager, vine, machine, addr, will, get, filename, fr, url, path = line.split(maxsplit=12)
+            path = path.strip('worker://')
+            from_addr, cachenmame = path.split('/') 
+            addr = addr.strip('):')
+            addr = addr.strip('(')
+            from_addr = transfer_addresses[from_addr]
+            transfer_info.append([from_addr, addr, cachename])
+        if "cache-update" in line:
+            date, time, manager, vine, rx, frm, machine, addr, op, cachename, size, x, y, z = line.split(maxsplit=13)
+            size = float(size)
+            if cachename not in file_sizes:
+                file_sizes[cachename] = []
+            file_sizes[cachename].append(size/GIGABYTES)
+        if "transfer-address" in line:
+            date, time, manager, vine, rx, frm, machine, addr, transfer_address, tr_addr = line.split(maxsplit=9)
+            addr = addr.strip('):')
+            addr = addr.strip('(')
+            tr_addr = tr_addr.split()[1]
+            tr_addr = addr.split(':')[0] + ':' + tr_addr
+            transfer_addresses[tr_addr] = addr
+
+    info = []
+    for transfer in transfer_info:
+        transfer.append(max(file_sizes[transfer[2]]))
+        info.append(transfer)
+    transfer_info = info
+
+    log_info = {}
+    log_info['manager_info'] = {'log':log, 'type':'debug'}
+    log_info['transfer_info'] = transfer_info
+    return log_info
+
+def parse_txn(log):
 
     task_info = {}
     worker_info = {}
     library_info = {}
     file_info = {}
-    manager_info = {'log':log, 'start':0, 'stop':0, 'first_task':float('inf'), 'last_task_done':float('-inf')}
+    manager_info = {'type':'txn', 'log':log, 'start':0, 'stop':0, 'first_task':float('inf'), 'last_task_done':float('-inf')}
 
     # parse relevant info
     lines = open(log, 'r').read().splitlines()
@@ -500,7 +562,55 @@ def plot_file_hist(log_info, axs, args):
         axs.legend(loc='upper left')
         axs2.legend(loc='upper right')
 
+def plot_data_exg(log_info, axs, args):
 
+    transfer_info = log_info['transfer_info']
+
+    ids = {}
+    # assign ids to workers + manager
+    count = 0 
+    ids["manager"] = 0
+    for transfer in transfer_info:
+        if transfer[0] not in ids:
+            count +=1
+            ids[transfer[0]] = count
+        if transfer[1] not in ids:
+            count +=1
+            ids[transfer[1]] = count
+
+    C = []
+    for x in range(count + 1):
+        C_in = []
+        for y in range(count + 1):
+            C_in.append(0)
+        C.append(C_in)
+    
+    for transfer in transfer_info:
+        from_id = ids[transfer[0]]
+        to_id = ids[transfer[1]]
+        size = transfer[3]
+        C[from_id][to_id] += size
+
+    im = axs.pcolormesh(C)
+    fig = axs.get_figure()
+    cbar = fig.colorbar(im, ax=axs)
+    if args.sublabels:
+        axs.set_ylabel('Source(ID)')
+        axs.set_xlabel('Destination(ID)')
+    cbar.ax.set_ylabel("Data (GB)")
+    if args.r_xlim:
+        axs.set_xlim(right=args.r_xlim)
+    if args.l_xlim:
+        axs.set_xlim(left=args.l_xlim)
+
+def check_debug(log_info):
+    log = log_info['manager_info']['log']
+    head =os.path.dirname(log)
+    tail =os.path.basename(log)
+    log = os.path.join(head, 'debug')
+    print('Parsing debug log for {}'.format(log))
+    return parse_debug(log)
+    
 def plot_any(log_info, plot, axs, args):
 
     if plot == 'worker-view':
@@ -519,6 +629,12 @@ def plot_any(log_info, plot, axs, args):
         plot_file_accum(log_info, axs, args)
     elif plot == 'file-hist':
         plot_file_hist(log_info, axs, args)
+    elif plot == 'data-exg':
+        if log_info['manager_info']['type'] == 'txn':
+            debug_info = check_debug(log_info)
+            plot_data_exg(debug_info, axs, args)
+        elif log_info['manager_info']['type'] == 'debug':
+            plot_data_exg(log_info, axs, args)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Consolidated plotting tool with a variety of options')
@@ -526,13 +642,14 @@ if __name__ == '__main__':
 
     # Plotting views
     parser.add_argument('--worker-view', dest='plots', action='append_const', const='worker-view')
+    parser.add_argument('--worker-cache', dest='plots', action='append_const', const='worker-cache')
     parser.add_argument('--task-view', dest='plots', action='append_const', const='task-view')
     parser.add_argument('--task-runtime', dest='plots', action='append_const', const='task-runtime')
     parser.add_argument('--task-completion', dest='plots', action='append_const', const='task-completion')
     parser.add_argument('--task-state', dest='plots', action='append_const', const='task-state')
-    parser.add_argument('--worker-cache', dest='plots', action='append_const', const='worker-cache')
     parser.add_argument('--file-accum', dest='plots', action='append_const', const='file-accum')
     parser.add_argument('--file-hist', dest='plots', action='append_const', const='file-hist')
+    parser.add_argument('--data-exg', dest='plots', action='append_const', const='data-exg')
 
     # Subplot options
     parser.add_argument('--sublabels', action='store_true', default=False)
@@ -556,6 +673,7 @@ if __name__ == '__main__':
 
     # Other Options
     parser.add_argument('mode', nargs='?', default='tv', choices=['tv', 'wq'], type=str)
+    parser.add_argument('--parse-debug', action='store_true', default=False, help='Parse as debug log')
 
     args = parser.parse_args()
     
@@ -573,7 +691,10 @@ if __name__ == '__main__':
     row = 0
     for log in args.logs:
         print('Parsing log for {}'.format(log))
-        log_info = parse_info(log)
+        if args.parse_debug:
+            log_info = parse_debug(log)
+        else:
+            log_info = parse_txn(log)
         print('Ploting plot(s) for {}'.format(log))
         col = 0
         for plot in args.plots:

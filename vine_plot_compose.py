@@ -649,7 +649,7 @@ def plot_trans_accum(log_info, axs, args):
     if args.l_xlim:
         axs.set_xlim(left=args.l_xlim)
 
-def plot_sent_accum(log_info):
+def plot_sent_accum(log_info, axs, args):
     transfer_info = log_info['transfer_info']
 
     ids = log_info['ids']

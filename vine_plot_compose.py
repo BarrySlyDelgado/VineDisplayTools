@@ -642,8 +642,36 @@ def plot_trans_accum(log_info, axs, args):
     fig = axs.get_figure()
     cbar = fig.colorbar(im, ax=axs, location='top')
     if args.sublabels:
-        axs.set_xlabel('Destination(ID)')
+        axs.set_xlabel('Node(ID)')
     cbar.ax.set_xlabel("Transfer Accumulated Data (GB)")
+    if args.r_xlim:
+        axs.set_xlim(right=args.r_xlim)
+    if args.l_xlim:
+        axs.set_xlim(left=args.l_xlim)
+
+def plot_sent_accum(log_info):
+    transfer_info = log_info['transfer_info']
+
+    ids = log_info['ids']
+    count = len(ids)
+
+    Accum = [[]]
+    for x in range(count):
+        Accum[0].append(0)
+    for transfer in transfer_info:
+        from_id = ids[transfer[0]]
+        to_id = ids[transfer[1]]
+        size = transfer[3]
+        Accum[0][from_id] += size
+
+    im = axs.pcolormesh(Accum)
+    axs.yaxis.set_tick_params(labelleft=False)
+    axs.set_yticks([])
+    fig = axs.get_figure()
+    cbar = fig.colorbar(im, ax=axs, location='top')
+    if args.sublabels:
+        axs.set_xlabel('Node(ID)')
+    cbar.ax.set_xlabel("Sent Accumulated Data (GB)")
     if args.r_xlim:
         axs.set_xlim(right=args.r_xlim)
     if args.l_xlim:
@@ -670,7 +698,7 @@ def plot_total_accum(log_info, axs, args):
     fig = axs.get_figure()
     cbar = fig.colorbar(im, ax=axs, location='top')
     if args.sublabels:
-        axs.set_xlabel('Destination(ID)')
+        axs.set_xlabel('Node(ID)')
     cbar.ax.set_xlabel("Total Accumulated Data (GB)")
     if args.r_xlim:
         axs.set_xlim(right=args.r_xlim)
@@ -697,14 +725,15 @@ def plot_internal_accum(log_info, axs, args):
         to_id = ids[transfer[1]]
         size = transfer[3]
         Accum[0][to_id] -= size
-
+    for x in range(count):
+        Accum[0][x] = max(0, Accum[0][x])
     im = axs.pcolormesh(Accum)
     axs.yaxis.set_tick_params(labelleft=False)
     axs.set_yticks([])
     fig = axs.get_figure()
     cbar = fig.colorbar(im, ax=axs, location='top')
     if args.sublabels:
-        axs.set_xlabel('Destination(ID)')
+        axs.set_xlabel('Node(ID)')
     cbar.ax.set_xlabel("Internally Generated Data (GB)")
     if args.r_xlim:
         axs.set_xlim(right=args.r_xlim)
@@ -752,6 +781,12 @@ def plot_any(log_info, plot, axs, args):
             plot_trans_accum(debug_info, axs, args)
         elif log_info['manager_info']['type'] == 'debug':
             plot_trans_accum(log_info, axs, args)
+    elif plot == 'sent-accum':
+        if log_info['manager_info']['type'] == 'txn':
+            debug_info = check_debug(log_info)
+            plot_sent_accum(debug_info, axs, args)
+        elif log_info['manager_info']['type'] == 'debug':
+            plot_sent_accum(log_info, axs, args)
     elif plot == 'total-accum':
         if log_info['manager_info']['type'] == 'txn':
             debug_info = check_debug(log_info)
@@ -781,6 +816,7 @@ if __name__ == '__main__':
     parser.add_argument('--file-hist', dest='plots', action='append_const', const='file-hist')
     parser.add_argument('--data-exg', dest='plots', action='append_const', const= 'data-exg')
     parser.add_argument('--trans-accum', dest='plots', action='append_const', const= 'trans-accum')
+    parser.add_argument('--sent-accum', dest='plots', action='append_const', const= 'sent-accum')
     parser.add_argument('--internal-accum', dest='plots', action='append_const', const= 'internal-accum')
     parser.add_argument('--total-accum', dest='plots', action='append_const', const= 'total-accum')
 

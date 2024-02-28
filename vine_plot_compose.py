@@ -12,6 +12,7 @@ def parse_debug(log):
     manager_transfers = 0
     transfer_info = []
     file_sizes = {}
+    worker_file_info = {}
     transfer_addresses = {}
     # FORMAT [FROM_ADDR, TO_ADDR, CACHENAME, SIZE(ADDED LATER)]
     for line in lines:
@@ -50,6 +51,11 @@ def parse_debug(log):
             size = float(size)
             if cachename not in file_sizes:
                 file_sizes[cachename] = []
+            addr = addr.strip('):')
+            addr = addr.strip('(')
+            if addr not in worker_file_info:
+                worker_file_info[addr] = {'files':{}}
+            worker_file_info[addr]['files'][cachename] = 0
             file_sizes[cachename].append(size/GIGABYTES)
         if "transfer-address" in line:
             date, time, manager, vine, rx, frm, machine, addr, transfer_address, tr_addr = line.split(maxsplit=9)
@@ -65,9 +71,30 @@ def parse_debug(log):
         info.append(transfer)
     transfer_info = info
 
+    for worker in worker_file_info:
+        for cachename in worker_file_info[worker]['files']:
+            worker_file_info[worker]['files'][cachename] = max(file_sizes[cachename])
+    ids = {}
+    # assign ids to workers + manager
+    count = 0 
+    ids["manager"] = 0
+    for transfer in transfer_info:
+        if transfer[0] not in ids:
+            count +=1
+            ids[transfer[0]] = count
+        if transfer[1] not in ids:
+            count +=1
+            ids[transfer[1]] = count
+    for worker in worker_file_info:
+        if worker not in ids:
+            count +=1
+            ids[worker] = count
+    
     log_info = {}
+    log_info['ids'] = ids
     log_info['manager_info'] = {'log':log, 'type':'debug'}
     log_info['transfer_info'] = transfer_info
+    log_info['worker_file_info'] = worker_file_info
     return log_info
 
 def parse_txn(log):
@@ -565,23 +592,14 @@ def plot_file_hist(log_info, axs, args):
 def plot_data_exg(log_info, axs, args):
 
     transfer_info = log_info['transfer_info']
-
-    ids = {}
-    # assign ids to workers + manager
-    count = 0 
-    ids["manager"] = 0
-    for transfer in transfer_info:
-        if transfer[0] not in ids:
-            count +=1
-            ids[transfer[0]] = count
-        if transfer[1] not in ids:
-            count +=1
-            ids[transfer[1]] = count
+    
+    ids = log_info['ids']
+    count = len(ids)
 
     C = []
-    for x in range(count + 1):
+    for x in range(count):
         C_in = []
-        for y in range(count + 1):
+        for y in range(count):
             C_in.append(0)
         C.append(C_in)
     
@@ -597,7 +615,97 @@ def plot_data_exg(log_info, axs, args):
     if args.sublabels:
         axs.set_ylabel('Source(ID)')
         axs.set_xlabel('Destination(ID)')
-    cbar.ax.set_ylabel("Data (GB)")
+    cbar.ax.set_ylabel("Exchanged Data (GB)")
+    if args.r_xlim:
+        axs.set_xlim(right=args.r_xlim)
+    if args.l_xlim:
+        axs.set_xlim(left=args.l_xlim)
+
+def plot_trans_accum(log_info, axs, args):
+    transfer_info = log_info['transfer_info']
+
+    ids = log_info['ids']
+    count = len(ids)
+
+    Accum = [[]]
+    for x in range(count):
+        Accum[0].append(0)
+    for transfer in transfer_info:
+        from_id = ids[transfer[0]]
+        to_id = ids[transfer[1]]
+        size = transfer[3]
+        Accum[0][to_id] += size
+
+    im = axs.pcolormesh(Accum)
+    axs.yaxis.set_tick_params(labelleft=False)
+    axs.set_yticks([])
+    fig = axs.get_figure()
+    cbar = fig.colorbar(im, ax=axs, location='top')
+    if args.sublabels:
+        axs.set_xlabel('Destination(ID)')
+    cbar.ax.set_xlabel("Transfer Accumulated Data (GB)")
+    if args.r_xlim:
+        axs.set_xlim(right=args.r_xlim)
+    if args.l_xlim:
+        axs.set_xlim(left=args.l_xlim)
+
+def plot_total_accum(log_info, axs, args):
+    worker_file_info = log_info['worker_file_info']
+
+    ids = log_info['ids']
+    count = len(ids)
+
+    Accum = [[]]
+    for x in range(count):
+        Accum[0].append(0)
+    for worker in worker_file_info:
+        for cachename in worker_file_info[worker]['files']:
+            worker_id = ids[worker]
+            size = worker_file_info[worker]['files'][cachename]
+            Accum[0][worker_id] += size
+
+    im = axs.pcolormesh(Accum)
+    axs.yaxis.set_tick_params(labelleft=False)
+    axs.set_yticks([])
+    fig = axs.get_figure()
+    cbar = fig.colorbar(im, ax=axs, location='top')
+    if args.sublabels:
+        axs.set_xlabel('Destination(ID)')
+    cbar.ax.set_xlabel("Total Accumulated Data (GB)")
+    if args.r_xlim:
+        axs.set_xlim(right=args.r_xlim)
+    if args.l_xlim:
+        axs.set_xlim(left=args.l_xlim)
+
+def plot_internal_accum(log_info, axs, args):
+    transfer_info = log_info['transfer_info']
+    worker_file_info = log_info['worker_file_info']
+
+    ids = log_info['ids']
+    count = len(ids)
+
+    Accum = [[]]
+    for x in range(count):
+        Accum[0].append(0)
+    for worker in worker_file_info:
+        for cachename in worker_file_info[worker]['files']:
+            worker_id = ids[worker]
+            size = worker_file_info[worker]['files'][cachename]
+            Accum[0][worker_id] += size
+    for transfer in transfer_info:
+        from_id = ids[transfer[0]]
+        to_id = ids[transfer[1]]
+        size = transfer[3]
+        Accum[0][to_id] -= size
+
+    im = axs.pcolormesh(Accum)
+    axs.yaxis.set_tick_params(labelleft=False)
+    axs.set_yticks([])
+    fig = axs.get_figure()
+    cbar = fig.colorbar(im, ax=axs, location='top')
+    if args.sublabels:
+        axs.set_xlabel('Destination(ID)')
+    cbar.ax.set_xlabel("Internally Generated Data (GB)")
     if args.r_xlim:
         axs.set_xlim(right=args.r_xlim)
     if args.l_xlim:
@@ -613,6 +721,7 @@ def check_debug(log_info):
     
 def plot_any(log_info, plot, axs, args):
 
+    # txn based plots
     if plot == 'worker-view':
         plot_worker(log_info, axs, args)
     elif plot == 'worker-cache':
@@ -629,12 +738,33 @@ def plot_any(log_info, plot, axs, args):
         plot_file_accum(log_info, axs, args)
     elif plot == 'file-hist':
         plot_file_hist(log_info, axs, args)
+
+    # debug based plots
     elif plot == 'data-exg':
         if log_info['manager_info']['type'] == 'txn':
             debug_info = check_debug(log_info)
             plot_data_exg(debug_info, axs, args)
         elif log_info['manager_info']['type'] == 'debug':
             plot_data_exg(log_info, axs, args)
+    elif plot == 'trans-accum':
+        if log_info['manager_info']['type'] == 'txn':
+            debug_info = check_debug(log_info)
+            plot_trans_accum(debug_info, axs, args)
+        elif log_info['manager_info']['type'] == 'debug':
+            plot_trans_accum(log_info, axs, args)
+    elif plot == 'total-accum':
+        if log_info['manager_info']['type'] == 'txn':
+            debug_info = check_debug(log_info)
+            plot_total_accum(debug_info, axs, args)
+        elif log_info['manager_info']['type'] == 'debug':
+            plot_total_accum(log_info, axs, args)
+    elif plot == 'internal-accum':
+        if log_info['manager_info']['type'] == 'txn':
+            debug_info = check_debug(log_info)
+            plot_internal_accum(debug_info, axs, args)
+        elif log_info['manager_info']['type'] == 'debug':
+            plot_internal_accum(log_info, axs, args)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Consolidated plotting tool with a variety of options')
@@ -649,7 +779,11 @@ if __name__ == '__main__':
     parser.add_argument('--task-state', dest='plots', action='append_const', const='task-state')
     parser.add_argument('--file-accum', dest='plots', action='append_const', const='file-accum')
     parser.add_argument('--file-hist', dest='plots', action='append_const', const='file-hist')
-    parser.add_argument('--data-exg', dest='plots', action='append_const', const='data-exg')
+    parser.add_argument('--data-exg', dest='plots', action='append_const', const= 'data-exg')
+    parser.add_argument('--trans-accum', dest='plots', action='append_const', const= 'trans-accum')
+    parser.add_argument('--internal-accum', dest='plots', action='append_const', const= 'internal-accum')
+    parser.add_argument('--total-accum', dest='plots', action='append_const', const= 'total-accum')
+
 
     # Subplot options
     parser.add_argument('--sublabels', action='store_true', default=False)
